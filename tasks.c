@@ -265,6 +265,8 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
     UBaseType_t uxPriority;                     /*< The priority of the task.  0 is the lowest priority. */
     StackType_t * pxStack;                      /*< Points to the start of the stack. */
     TickType_t xTaskStarted;                    /* The tick value when task started execution. */
+    TickType_t xTaskExecutionTime;              /* Number of ticks needed for task to be executed. NOTE: for task load simulation only. */
+    TickType_t xTaskCurrentExecutionTime;       /* Set to xTaskExecutionTime and decreased every SysTick. NOTE: for task load simulation only. */
     TickType_t xTaskExecutionDeadline;          /* Deadline for a task. */
     char pcTaskName[ configMAX_TASK_NAME_LEN ]; /*< Descriptive name given to the task when created.  Facilitates debugging only. */ /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
 
@@ -538,6 +540,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
                                   UBaseType_t uxPriority,
+                                  TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
                                   TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
@@ -726,6 +729,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
                             const configSTACK_DEPTH_TYPE usStackDepth,
                             void * const pvParameters,
                             UBaseType_t uxPriority,
+                            TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
                             TickType_t xTaskExecutionDeadline,
                             TaskHandle_t * const pxCreatedTask )
     {
@@ -802,7 +806,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             }
             #endif /* tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE */
 
-            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
+            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
             prvAddNewTaskToReadyList( pxNewTCB );
             xReturn = pdPASS;
         }
@@ -822,6 +826,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
                                   UBaseType_t uxPriority,
+                                  TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
                                   TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
@@ -930,6 +935,8 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     pxNewTCB->uxPriority = uxPriority;
 
     pxNewTCB->xTaskStarted = xTaskGetTickCount();
+    pxNewTCB->xTaskExecutionTime = xTaskExecutionTime;
+    pxNewTCB->xTaskCurrentExecutionTime = xTaskExecutionTime;
     pxNewTCB->xTaskExecutionDeadline = xTaskExecutionDeadline;
 
     #if ( configUSE_MUTEXES == 1 )
@@ -1999,6 +2006,7 @@ void vTaskStartScheduler( void )
                                configMINIMAL_STACK_SIZE,
                                ( void * ) NULL,
                                portPRIVILEGE_BIT,  /* In effect ( tskIDLE_PRIORITY | portPRIVILEGE_BIT ), but tskIDLE_PRIORITY is zero. */
+                               0,
                                0,
                                &xIdleTaskHandle ); /*lint !e961 MISRA exception, justified as it is not a redundant explicit cast to all supported compilers. */
     }
