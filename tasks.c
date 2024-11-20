@@ -264,6 +264,11 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
     ListItem_t xEventListItem;                  /*< Used to reference a task from an event list. */
     UBaseType_t uxPriority;                     /*< The priority of the task.  0 is the lowest priority. */
     StackType_t * pxStack;                      /*< Points to the start of the stack. */
+    TickType_t xTaskStarted;                    /* The tick value when task started execution. */
+    TickType_t xTaskTimeExecuted;                /* Number of tick a task has been executing. */
+    TickType_t xTaskExecutionTime;              /* Number of ticks needed for task to be executed. NOTE: for task load simulation only. */
+    TickType_t xTaskCurrentExecutionTime;       /* Set to xTaskExecutionTime and decreased every SysTick. NOTE: for task load simulation only. */
+    TickType_t xTaskExecutionDeadline;          /* Deadline for a task. */
     char pcTaskName[ configMAX_TASK_NAME_LEN ]; /*< Descriptive name given to the task when created.  Facilitates debugging only. */ /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
 
     #if ( ( portSTACK_GROWTH > 0 ) || ( configRECORD_STACK_HIGH_ADDRESS == 1 ) )
@@ -536,6 +541,8 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
                                   UBaseType_t uxPriority,
+                                  TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                                  TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
                                   const MemoryRegion_t * const xRegions ) PRIVILEGED_FUNCTION;
@@ -723,6 +730,8 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
                             const configSTACK_DEPTH_TYPE usStackDepth,
                             void * const pvParameters,
                             UBaseType_t uxPriority,
+                            TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                            TickType_t xTaskExecutionDeadline,
                             TaskHandle_t * const pxCreatedTask )
     {
         TCB_t * pxNewTCB;
@@ -798,7 +807,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             }
             #endif /* tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE */
 
-            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, pxCreatedTask, pxNewTCB, NULL );
+            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
             prvAddNewTaskToReadyList( pxNewTCB );
             xReturn = pdPASS;
         }
@@ -818,6 +827,8 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
                                   UBaseType_t uxPriority,
+                                  TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                                  TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
                                   const MemoryRegion_t * const xRegions )
@@ -923,6 +934,13 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     }
 
     pxNewTCB->uxPriority = uxPriority;
+
+    pxNewTCB->xTaskStarted = xTaskGetTickCount();
+    pxNewTCB->xTaskTimeExecuted = 1;
+    pxNewTCB->xTaskExecutionTime = xTaskExecutionTime;
+    pxNewTCB->xTaskCurrentExecutionTime = xTaskExecutionTime;
+    pxNewTCB->xTaskExecutionDeadline = xTaskExecutionDeadline;
+
     #if ( configUSE_MUTEXES == 1 )
     {
         pxNewTCB->uxBasePriority = uxPriority;
@@ -1990,6 +2008,8 @@ void vTaskStartScheduler( void )
                                configMINIMAL_STACK_SIZE,
                                ( void * ) NULL,
                                portPRIVILEGE_BIT,  /* In effect ( tskIDLE_PRIORITY | portPRIVILEGE_BIT ), but tskIDLE_PRIORITY is zero. */
+                               0,
+                               0,
                                &xIdleTaskHandle ); /*lint !e961 MISRA exception, justified as it is not a redundant explicit cast to all supported compilers. */
     }
     #endif /* configSUPPORT_STATIC_ALLOCATION */
@@ -2202,6 +2222,8 @@ BaseType_t xTaskResumeAll( void )
                     portMEMORY_BARRIER();
                     listREMOVE_ITEM( &( pxTCB->xStateListItem ) );
                     prvAddTaskToReadyList( pxTCB );
+
+                    pxTCB->xTaskStarted = xTaskGetTickCount();
 
                     /* If the moved task has a priority higher than or equal to
                      * the current task then a yield must be performed. */
@@ -2792,6 +2814,8 @@ BaseType_t xTaskIncrementTick( void )
                     /* It is time to remove the item from the Blocked state. */
                     listREMOVE_ITEM( &( pxTCB->xStateListItem ) );
 
+                    pxTCB->xTaskTimeExecuted = 1;
+
                     /* Is the task waiting on an event also?  If so remove
                      * it from the event list. */
                     if( listLIST_ITEM_CONTAINER( &( pxTCB->xEventListItem ) ) != NULL )
@@ -2889,6 +2913,8 @@ BaseType_t xTaskIncrementTick( void )
         }
         #endif
     }
+
+    pxCurrentTCB->xTaskTimeExecuted++;
 
     return xSwitchRequired;
 }
