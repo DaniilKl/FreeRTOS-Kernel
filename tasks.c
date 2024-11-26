@@ -115,6 +115,7 @@
     #define configIDLE_TASK_NAME    "IDLE"
 #endif
 
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 #if ( configUSE_PORT_OPTIMISED_TASK_SELECTION == 0 )
 
 /* If configUSE_PORT_OPTIMISED_TASK_SELECTION is 0 then task selection is
@@ -123,6 +124,7 @@
 
 /* uxTopReadyPriority holds the priority of the highest priority ready
  * state task. */
+
     #define taskRECORD_READY_PRIORITY( uxPriority ) \
     {                                               \
         if( ( uxPriority ) > uxTopReadyPriority )   \
@@ -193,6 +195,7 @@
     }
 
 #endif /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
+#endif
 
 /*-----------------------------------------------------------*/
 
@@ -218,11 +221,21 @@
  * Place the task represented by pxTCB into the appropriate ready list for
  * the task.  It is inserted at the end of the list.
  */
+
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 #define prvAddTaskToReadyList( pxTCB )                                                                 \
     traceMOVED_TASK_TO_READY_STATE( pxTCB );                                                           \
     taskRECORD_READY_PRIORITY( ( pxTCB )->uxPriority );                                                \
     listINSERT_END( &( pxReadyTasksLists[ ( pxTCB )->uxPriority ] ), &( ( pxTCB )->xStateListItem ) ); \
     tracePOST_MOVED_TASK_TO_READY_STATE( pxTCB )
+#else
+#define prvAddTaskToReadyList( pxTCB )                                                                 \
+    traceMOVED_TASK_TO_READY_STATE( pxTCB );                                                           \
+    listINSERT_END( &( pxReadyTasksLists ), &( ( pxTCB )->xStateListItem ) ); \
+    tracePOST_MOVED_TASK_TO_READY_STATE( pxTCB )
+#endif
+
+
 /*-----------------------------------------------------------*/
 
 /*
@@ -262,7 +275,9 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
 
     ListItem_t xStateListItem;                  /*< The list that the state list item of a task is reference from denotes the state of that task (Ready, Blocked, Suspended ). */
     ListItem_t xEventListItem;                  /*< Used to reference a task from an event list. */
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     UBaseType_t uxPriority;                     /*< The priority of the task.  0 is the lowest priority. */
+    #endif
     StackType_t * pxStack;                      /*< Points to the start of the stack. */
     TickType_t xTaskStarted;                    /* The tick value when task started execution. */
     TickType_t xTaskTimeExecuted;                /* Number of tick a task has been executing. */
@@ -337,7 +352,11 @@ portDONT_DISCARD PRIVILEGED_DATA TCB_t * volatile pxCurrentTCB = NULL;
  * xDelayedTaskList1 and xDelayedTaskList2 could be moved to function scope but
  * doing so breaks some kernel aware debuggers and debuggers that rely on removing
  * the static qualifier. */
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 PRIVILEGED_DATA static List_t pxReadyTasksLists[ configMAX_PRIORITIES ]; /*< Prioritised ready tasks. */
+#else
+PRIVILEGED_DATA static List_t pxReadyTasksLists; // Only one list if no priorities. 
+#endif
 PRIVILEGED_DATA static List_t xDelayedTaskList1;                         /*< Delayed tasks. */
 PRIVILEGED_DATA static List_t xDelayedTaskList2;                         /*< Delayed tasks (two lists are used - one for delays that have overflowed the current tick count. */
 PRIVILEGED_DATA static List_t * volatile pxDelayedTaskList;              /*< Points to the delayed task list currently being used. */
@@ -366,7 +385,9 @@ PRIVILEGED_DATA static List_t xPendingReadyList;                         /*< Tas
 /* Other file private variables. --------------------------------*/
 PRIVILEGED_DATA static volatile UBaseType_t uxCurrentNumberOfTasks = ( UBaseType_t ) 0U;
 PRIVILEGED_DATA static volatile TickType_t xTickCount = ( TickType_t ) configINITIAL_TICK_COUNT;
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 PRIVILEGED_DATA static volatile UBaseType_t uxTopReadyPriority = tskIDLE_PRIORITY;
+#endif
 PRIVILEGED_DATA static volatile BaseType_t xSchedulerRunning = pdFALSE;
 PRIVILEGED_DATA static volatile TickType_t xPendedTicks = ( TickType_t ) 0U;
 PRIVILEGED_DATA static volatile BaseType_t xYieldPending = pdFALSE;
@@ -378,7 +399,9 @@ PRIVILEGED_DATA static TaskHandle_t xIdleTaskHandle = NULL;                     
 /* Improve support for OpenOCD. The kernel tracks Ready tasks via priority lists.
  * For tracking the state of remote threads, OpenOCD uses uxTopUsedPriority
  * to determine the number of priority lists to read back from the remote target. */
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 const volatile UBaseType_t uxTopUsedPriority = configMAX_PRIORITIES - 1U;
+#endif
 
 /* Context switches are held pending while the scheduler is suspended.  Also,
  * interrupts must not manipulate the xStateListItem of a TCB, or any of the
@@ -540,7 +563,9 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
+                                  #ifdef USE_FREERTOS_CLASSIC_SCHEDULER 
                                   UBaseType_t uxPriority,
+                                  #endif
                                   TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
                                   TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
@@ -729,7 +754,9 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
                             const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                             const configSTACK_DEPTH_TYPE usStackDepth,
                             void * const pvParameters,
+                            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                             UBaseType_t uxPriority,
+                            #endif
                             TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
                             TickType_t xTaskExecutionDeadline,
                             TaskHandle_t * const pxCreatedTask )
@@ -807,8 +834,11 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             }
             #endif /* tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE */
 
+            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
             prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
             prvAddNewTaskToReadyList( pxNewTCB );
+            #endif
+
             xReturn = pdPASS;
         }
         else
@@ -826,7 +856,9 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
+                                  #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                                   UBaseType_t uxPriority,
+                                  #endif
                                   TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
                                   TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
@@ -921,6 +953,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
         mtCOVERAGE_TEST_MARKER();
     }
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* This is used as an array index so must ensure it's not too large. */
     configASSERT( uxPriority < configMAX_PRIORITIES );
 
@@ -934,6 +967,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     }
 
     pxNewTCB->uxPriority = uxPriority;
+    #endif
 
     pxNewTCB->xTaskStarted = xTaskGetTickCount();
     pxNewTCB->xTaskTimeExecuted = 1;
@@ -954,8 +988,10 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
      * back to  the containing TCB from a generic item in a list. */
     listSET_LIST_ITEM_OWNER( &( pxNewTCB->xStateListItem ), pxNewTCB );
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* Event lists are always in priority order. */
     listSET_LIST_ITEM_VALUE( &( pxNewTCB->xEventListItem ), ( TickType_t ) configMAX_PRIORITIES - ( TickType_t ) uxPriority ); /*lint !e961 MISRA exception as the casts are only redundant for some ports. */
+    #endif
     listSET_LIST_ITEM_OWNER( &( pxNewTCB->xEventListItem ), pxNewTCB );
 
     #if ( portUSING_MPU_WRAPPERS == 1 )
@@ -1067,6 +1103,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
                 mtCOVERAGE_TEST_MARKER();
             }
         }
+        #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
         else
         {
             /* If the scheduler is not already running, make this task the
@@ -1088,6 +1125,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
                 mtCOVERAGE_TEST_MARKER();
             }
         }
+        #endif
 
         uxTaskNumber++;
 
@@ -1105,6 +1143,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
     }
     taskEXIT_CRITICAL();
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     if( xSchedulerRunning != pdFALSE )
     {
         /* If the created task is of a higher priority than the current task
@@ -1122,6 +1161,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
     {
         mtCOVERAGE_TEST_MARKER();
     }
+    #endif
 }
 /*-----------------------------------------------------------*/
 
@@ -1138,6 +1178,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
             pxTCB = prvGetTCBFromHandle( xTaskToDelete );
 
             /* Remove task from the ready/delayed list. */
+            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
             if( uxListRemove( &( pxTCB->xStateListItem ) ) == ( UBaseType_t ) 0 )
             {
                 taskRESET_READY_PRIORITY( pxTCB->uxPriority );
@@ -1146,6 +1187,9 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
             {
                 mtCOVERAGE_TEST_MARKER();
             }
+            #else
+            uxListRemove( &( pxTCB->xStateListItem ) );
+            #endif
 
             /* Is the task waiting on an event also? */
             if( listLIST_ITEM_CONTAINER( &( pxTCB->xEventListItem ) ) != NULL )
@@ -2007,7 +2051,9 @@ void vTaskStartScheduler( void )
                                configIDLE_TASK_NAME,
                                configMINIMAL_STACK_SIZE,
                                ( void * ) NULL,
+                               #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                                portPRIVILEGE_BIT,  /* In effect ( tskIDLE_PRIORITY | portPRIVILEGE_BIT ), but tskIDLE_PRIORITY is zero. */
+                               #endif
                                0,
                                0,
                                &xIdleTaskHandle ); /*lint !e961 MISRA exception, justified as it is not a redundant explicit cast to all supported compilers. */
@@ -2090,9 +2136,11 @@ void vTaskStartScheduler( void )
      * meaning xIdleTaskHandle is not used anywhere else. */
     ( void ) xIdleTaskHandle;
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* OpenOCD makes use of uxTopUsedPriority for thread debugging. Prevent uxTopUsedPriority
      * from getting optimized out as it is no longer used by the kernel. */
     ( void ) uxTopUsedPriority;
+    #endif
 }
 /*-----------------------------------------------------------*/
 
@@ -2225,6 +2273,7 @@ BaseType_t xTaskResumeAll( void )
 
                     pxTCB->xTaskStarted = xTaskGetTickCount();
 
+                    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                     /* If the moved task has a priority higher than or equal to
                      * the current task then a yield must be performed. */
                     if( pxTCB->uxPriority >= pxCurrentTCB->uxPriority )
@@ -2235,6 +2284,7 @@ BaseType_t xTaskResumeAll( void )
                     {
                         mtCOVERAGE_TEST_MARKER();
                     }
+                    #endif
                 }
 
                 if( pxTCB != NULL )
@@ -2843,6 +2893,7 @@ BaseType_t xTaskIncrementTick( void )
                          * processing time (which happens when both
                          * preemption and time slicing are on) is
                          * handled below.*/
+                        #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                         if( pxTCB->uxPriority > pxCurrentTCB->uxPriority )
                         {
                             xSwitchRequired = pdTRUE;
@@ -2851,6 +2902,7 @@ BaseType_t xTaskIncrementTick( void )
                         {
                             mtCOVERAGE_TEST_MARKER();
                         }
+                        #endif
                     }
                     #endif /* configUSE_PREEMPTION */
                 }
@@ -2862,6 +2914,7 @@ BaseType_t xTaskIncrementTick( void )
          * writer has not explicitly turned time slicing off. */
         #if ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) )
         {
+            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
             if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ pxCurrentTCB->uxPriority ] ) ) > ( UBaseType_t ) 1 )
             {
                 xSwitchRequired = pdTRUE;
@@ -2870,6 +2923,7 @@ BaseType_t xTaskIncrementTick( void )
             {
                 mtCOVERAGE_TEST_MARKER();
             }
+            #endif
         }
         #endif /* ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) ) */
 
@@ -3083,9 +3137,11 @@ void vTaskSwitchContext( void )
         }
         #endif
 
+        #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
         /* Select a new task to run using either the generic C or port
          * optimised asm code. */
         taskSELECT_HIGHEST_PRIORITY_TASK(); /*lint !e9079 void * is used as this macro is used with timers and co-routines too.  Alignment is known to be fine as the type of the pointer stored and retrieved is the same. */
+        #endif
         traceTASK_SWITCHED_IN();
 
         /* After the new task is switched in, update the global errno. */
@@ -3240,6 +3296,7 @@ BaseType_t xTaskRemoveFromEventList( const List_t * const pxEventList )
         listINSERT_END( &( xPendingReadyList ), &( pxUnblockedTCB->xEventListItem ) );
     }
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     if( pxUnblockedTCB->uxPriority > pxCurrentTCB->uxPriority )
     {
         /* Return true if the task removed from the event list has a higher
@@ -3255,6 +3312,9 @@ BaseType_t xTaskRemoveFromEventList( const List_t * const pxEventList )
     {
         xReturn = pdFALSE;
     }
+    #endif
+
+    xReturn = pdFALSE;
 
     return xReturn;
 }
@@ -3298,6 +3358,7 @@ void vTaskRemoveFromUnorderedEventList( ListItem_t * pxEventListItem,
     listREMOVE_ITEM( &( pxUnblockedTCB->xStateListItem ) );
     prvAddTaskToReadyList( pxUnblockedTCB );
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     if( pxUnblockedTCB->uxPriority > pxCurrentTCB->uxPriority )
     {
         /* The unblocked task has a priority above that of the calling task, so
@@ -3306,6 +3367,7 @@ void vTaskRemoveFromUnorderedEventList( ListItem_t * pxEventListItem,
          * occurs immediately that the scheduler is resumed (unsuspended). */
         xYieldPending = pdTRUE;
     }
+    #endif
 }
 /*-----------------------------------------------------------*/
 
@@ -3682,12 +3744,16 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 
 static void prvInitialiseTaskLists( void )
 {
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     UBaseType_t uxPriority;
 
     for( uxPriority = ( UBaseType_t ) 0U; uxPriority < ( UBaseType_t ) configMAX_PRIORITIES; uxPriority++ )
     {
         vListInitialise( &( pxReadyTasksLists[ uxPriority ] ) );
     }
+    #else
+    vListInitialise ( &pxReadyTasksLists );
+    #endif
 
     vListInitialise( &xDelayedTaskList1 );
     vListInitialise( &xDelayedTaskList2 );
@@ -4689,7 +4755,9 @@ TickType_t uxTaskResetEventItemValue( void )
 
     /* Reset the event list item to its normal value - so it can be used with
      * queues and semaphores. */
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     listSET_LIST_ITEM_VALUE( &( pxCurrentTCB->xEventListItem ), ( ( TickType_t ) configMAX_PRIORITIES - ( TickType_t ) pxCurrentTCB->uxPriority ) ); /*lint !e961 MISRA exception as the casts are only redundant for some ports. */
+    #endif
 
     return uxReturn;
 }
@@ -5335,6 +5403,7 @@ static void prvAddCurrentTaskToDelayedList( TickType_t xTicksToWait,
     }
     #endif
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* Remove the task from the ready list before adding it to the blocked list
      * as the same list item is used for both lists. */
     if( uxListRemove( &( pxCurrentTCB->xStateListItem ) ) == ( UBaseType_t ) 0 )
@@ -5347,6 +5416,9 @@ static void prvAddCurrentTaskToDelayedList( TickType_t xTicksToWait,
     {
         mtCOVERAGE_TEST_MARKER();
     }
+    #else
+    uxListRemove( &( pxCurrentTCB->xStateListItem ) );
+    #endif
 
     #if ( INCLUDE_vTaskSuspend == 1 )
     {

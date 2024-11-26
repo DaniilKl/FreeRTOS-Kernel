@@ -144,12 +144,14 @@
         #endif
 
 /* Store/clear the ready priorities in a bit map. */
+        #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
         #define portRECORD_READY_PRIORITY( uxPriority, uxReadyPriorities )    ( uxReadyPriorities ) |= ( 1UL << ( uxPriority ) )
         #define portRESET_READY_PRIORITY( uxPriority, uxReadyPriorities )     ( uxReadyPriorities ) &= ~( 1UL << ( uxPriority ) )
 
 /*-----------------------------------------------------------*/
 
         #define portGET_HIGHEST_PRIORITY( uxTopPriority, uxReadyPriorities )    uxTopPriority = ( 31UL - ( uint32_t ) ucPortCountLeadingZeros( ( uxReadyPriorities ) ) )
+        #endif
 
     #endif /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
 

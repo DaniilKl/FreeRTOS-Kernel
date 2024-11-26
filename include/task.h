@@ -356,7 +356,9 @@ typedef enum
                             const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                             const configSTACK_DEPTH_TYPE usStackDepth,
                             void * const pvParameters,
+                            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                             UBaseType_t uxPriority,
+                            #endif
                             TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
                             TickType_t xTaskExecutionDeadline,
                             TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION;
