@@ -2192,7 +2192,6 @@ void vTaskSuspendAll( void )
 BaseType_t xTaskResumeAll( void )
 {
     TCB_t * pxTCB = NULL;
-    TCB_t * pxTCB_HighestPriority = NULL;
     BaseType_t xAlreadyYielded = pdFALSE;
 
     /* If uxSchedulerSuspended is zero then this function does not match a
@@ -2222,13 +2221,13 @@ BaseType_t xTaskResumeAll( void )
                     listREMOVE_ITEM( &( pxTCB->xStateListItem ) );
                     prvAddTaskToReadyList( pxTCB );
 
+                    pxTCB->xTaskStarted = xTaskGetTickCount();
+
                     /* If the moved task has a priority higher than or equal to
                      * the current task then a yield must be performed. */
                     if( pxTCB->uxPriority >= pxCurrentTCB->uxPriority )
                     {
                         xYieldPending = pdTRUE;
-
-                        pxTCB_HighestPriority = pxTCB;
                     }
                     else
                     {
@@ -2277,8 +2276,6 @@ BaseType_t xTaskResumeAll( void )
                         mtCOVERAGE_TEST_MARKER();
                     }
                 }
-
-                pxTCB_HighestPriority->xTaskStarted = xTaskGetTickCount();
 
                 if( xYieldPending != pdFALSE )
                 {
