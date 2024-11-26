@@ -122,7 +122,9 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
 
     ListItem_t xStateListItem;                  /*< The list that the state list item of a task is reference from denotes the state of that task (Ready, Blocked, Suspended ). */
     ListItem_t xEventListItem;                  /*< Used to reference a task from an event list. */
+    #ifndef DISABLE_PRIORITIES
     UBaseType_t uxPriority;                     /*< The priority of the task.  0 is the lowest priority. */
+    #endif
     StackType_t * pxStack;                      /*< Points to the start of the stack. */
     TickType_t xTaskStarted;                    /* The tick value when task started execution. */
     TickType_t xTaskExecutionTime;              /* Number of ticks needed for task to be executed. NOTE: for task load simulation only. */
