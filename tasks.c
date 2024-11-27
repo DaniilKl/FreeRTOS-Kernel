@@ -197,6 +197,18 @@
 #endif /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
 #endif
 
+#ifdef USE_FCFS_SCHEDULER
+    #define taskFCFS_Scheduler()                                \
+    {                                                                         \
+        ListItem_t ListItem;                                                  \
+                                                                              \
+        if ( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists ) ) == 0 )         \
+            pxCurrentTCB = pxIdleTaskTCB;                                     \
+        else                                                                  \
+            listGET_OWNER_OF_NEXT_ENTRY( pxCurrentTCB, &( pxReadyTasksLists ) );\
+    } /* taskFCFS_Scheduler */
+#endif
+
 /*-----------------------------------------------------------*/
 
 /* pxDelayedTaskList and pxOverflowDelayedTaskList are switched when the tick
@@ -355,7 +367,8 @@ portDONT_DISCARD PRIVILEGED_DATA TCB_t * volatile pxCurrentTCB = NULL;
 #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 PRIVILEGED_DATA static List_t pxReadyTasksLists[ configMAX_PRIORITIES ]; /*< Prioritised ready tasks. */
 #else
-PRIVILEGED_DATA static List_t pxReadyTasksLists; // Only one list if no priorities. 
+PRIVILEGED_DATA static List_t pxReadyTasksLists; // Only one list if no priorities.
+portDONT_DISCARD PRIVILEGED_DATA TCB_t * volatile pxIdleTaskTCB = NULL;
 #endif
 PRIVILEGED_DATA static List_t xDelayedTaskList1;                         /*< Delayed tasks. */
 PRIVILEGED_DATA static List_t xDelayedTaskList2;                         /*< Delayed tasks (two lists are used - one for delays that have overflowed the current tick count. */
@@ -837,6 +850,15 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
             prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
             prvAddNewTaskToReadyList( pxNewTCB );
+            #endif
+
+            #ifdef USE_FCFS_SCHEDULER
+            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
+
+            if( pcName == configIDLE_TASK_NAME )
+                pxIdleTaskTCB = pxNewTCB;
+            else
+                prvAddNewTaskToReadyList( pxNewTCB );
             #endif
 
             xReturn = pdPASS;
@@ -2905,6 +2927,13 @@ BaseType_t xTaskIncrementTick( void )
                         #endif
                     }
                     #endif /* configUSE_PREEMPTION */
+
+                    #ifdef USE_FCFS_SCHEDULER
+                    /* If a task has been unblocked while the idle task runs -
+                     * call to scheduler for context switch. */
+                    if (pxCurrentTCB == pxIdleTaskTCB)
+                        xSwitchRequired = pdTRUE;
+                    #endif
                 }
             }
         }
@@ -3142,6 +3171,11 @@ void vTaskSwitchContext( void )
          * optimised asm code. */
         taskSELECT_HIGHEST_PRIORITY_TASK(); /*lint !e9079 void * is used as this macro is used with timers and co-routines too.  Alignment is known to be fine as the type of the pointer stored and retrieved is the same. */
         #endif
+
+        #ifdef USE_FCFS_SCHEDULER
+        taskFCFS_Scheduler();
+        #endif
+
         traceTASK_SWITCHED_IN();
 
         /* After the new task is switched in, update the global errno. */
