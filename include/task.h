@@ -252,6 +252,9 @@ typedef enum
 #define taskSCHEDULER_NOT_STARTED    ( ( BaseType_t ) 1 )
 #define taskSCHEDULER_RUNNING        ( ( BaseType_t ) 2 )
 
+#define taskModulo(dividend, divisor) \
+    (dividend & (divisor - 1))           \
+
 
 /*-----------------------------------------------------------
 * TASK CREATION API

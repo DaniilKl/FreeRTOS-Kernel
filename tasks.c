@@ -209,6 +209,19 @@
     } /* taskFCFS_Scheduler */
 #endif
 
+#ifdef USE_RR_SCHEDULER
+    #define taskRR_SCHEDULER()                                \
+    {                                                                         \
+        pxCurrentTCB->xTaskTimeExecuted = 1;                                  \
+        if (listCURRENT_LIST_LENGTH(&(pxReadyTasksLists)) == 0 )              \
+            pxCurrentTCB = pxIdleTaskTCB;                                     \
+        else                                                                  \
+        /* listGET_OWNER_OF_NEXT_ENTRY indexes through the list, so the tasks of \
+         * the  same priority get an equal share of the processor time. */    \
+            listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+    }
+#endif
+
 /*-----------------------------------------------------------*/
 
 /* pxDelayedTaskList and pxOverflowDelayedTaskList are switched when the tick
@@ -852,7 +865,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             prvAddNewTaskToReadyList( pxNewTCB );
             #endif
 
-            #ifdef USE_FCFS_SCHEDULER
+            #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER)
             prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
 
             if( pcName == configIDLE_TASK_NAME )
@@ -2928,7 +2941,7 @@ BaseType_t xTaskIncrementTick( void )
                     }
                     #endif /* configUSE_PREEMPTION */
 
-                    #ifdef USE_FCFS_SCHEDULER
+                    #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER)
                     /* If a task has been unblocked while the idle task runs -
                      * call to scheduler for context switch. */
                     if (pxCurrentTCB == pxIdleTaskTCB)
@@ -2955,6 +2968,17 @@ BaseType_t xTaskIncrementTick( void )
             #endif
         }
         #endif /* ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) ) */
+
+        #ifdef USE_RR_SCHEDULER
+        if( ( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists ) ) > ( UBaseType_t ) 1 ) && (taskModulo(pxCurrentTCB->xTaskTimeExecuted, RR_TIME_SLICE) == 0) )
+        {
+            xSwitchRequired = pdTRUE;
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+        #endif
 
         #if ( configUSE_TICK_HOOK == 1 )
         {
@@ -3174,6 +3198,10 @@ void vTaskSwitchContext( void )
 
         #ifdef USE_FCFS_SCHEDULER
         taskFCFS_Scheduler();
+        #endif
+
+        #ifdef USE_RR_SCHEDULER
+        taskRR_SCHEDULER();
         #endif
 
         traceTASK_SWITCHED_IN();
