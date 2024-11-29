@@ -250,6 +250,36 @@
     }
 #endif
 
+#ifdef USE_SRTN_SCHEDULER
+    #define taskComputeRemaningExecutionTime(pxTCB) ((pxTCB->xTaskExecutionTime + 1) - pxTCB->xTaskTimeExecuted)
+
+    #define taskSRTN_SCHEDULER()                                                 \
+    {                                                                          \
+        pxCurrentTCB = NULL;                                                   \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&(pxReadyTasksLists));\
+                                                                               \
+        if (uxCurrentReadyListLength == 0)                                    \
+            pxCurrentTCB = pxIdleTaskTCB;                                      \
+        else                                                                   \
+        /* Find the shortst job in the redy list: */                           \
+        while(uxCurrentReadyListLength != 0)                                   \
+        {                                                                      \
+            if(pxCurrentTCB == NULL)                                           \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+            }                                                                  \
+            else                                                               \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists));  \
+                if(taskComputeRemaningExecutionTime(pxTempTCB) < taskComputeRemaningExecutionTime(pxCurrentTCB))\
+                    pxCurrentTCB = pxTempTCB;                                  \
+            }                                                                  \
+            uxCurrentReadyListLength--;                                        \
+        }                                                                      \
+    }
+#endif
+
 /*-----------------------------------------------------------*/
 
 /* pxDelayedTaskList and pxOverflowDelayedTaskList are switched when the tick
@@ -893,7 +923,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             prvAddNewTaskToReadyList( pxNewTCB );
             #endif
 
-            #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER)
+            #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER)
             prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
 
             if( pcName == configIDLE_TASK_NAME )
@@ -1197,6 +1227,30 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
             if( xSchedulerRunning == pdFALSE )
             {
                 if(pxCurrentTCB->xTaskExecutionTime > pxNewTCB->xTaskExecutionTime)
+                {
+                    pxCurrentTCB = pxNewTCB;
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        #endif
+        #ifdef USE_SRTN_SCHEDULER
+        else
+        {
+            /* If task starts execution for the first time than its
+             * xTaskTimeExecuted equals to its initial value, which is 1, so no
+             * need to compute remaning execution for a new task because it
+             * equals to total execution time left of the task. */
+            if( xSchedulerRunning == pdFALSE )
+            {
+                if(pxNewTCB->xTaskExecutionTime < taskComputeRemaningExecutionTime(pxCurrentTCB))
                 {
                     pxCurrentTCB = pxNewTCB;
                 }
@@ -2951,6 +3005,19 @@ BaseType_t xTaskIncrementTick( void )
 
                     pxTCB->xTaskTimeExecuted = 1;
 
+                    #ifdef USE_SRTN_SCHEDULER
+                    /* If a periodic task starts execution again its remaining
+                     * execution time equals to total execution time:*/
+                    if (pxTCB->xTaskExecutionTime < taskComputeRemaningExecutionTime(pxCurrentTCB))
+                    {
+                        xSwitchRequired = pdTRUE;
+                    }
+                    else
+                    {
+                        mtCOVERAGE_TEST_MARKER();
+                    }
+                    #endif
+
                     /* Is the task waiting on an event also?  If so remove
                      * it from the event list. */
                     if( listLIST_ITEM_CONTAINER( &( pxTCB->xEventListItem ) ) != NULL )
@@ -2991,7 +3058,7 @@ BaseType_t xTaskIncrementTick( void )
                     }
                     #endif /* configUSE_PREEMPTION */
 
-                    #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER)
+                    #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER)
                     /* If a task has been unblocked while the idle task runs -
                      * call to scheduler for context switch. */
                     if (pxCurrentTCB == pxIdleTaskTCB)
@@ -3256,6 +3323,10 @@ void vTaskSwitchContext( void )
 
         #ifdef USE_SJF_SCHEDULER
         taskSJF_SCHEDULER();
+        #endif
+
+        #ifdef USE_SRTN_SCHEDULER
+        taskSRTN_SCHEDULER();
         #endif
 
         traceTASK_SWITCHED_IN();
