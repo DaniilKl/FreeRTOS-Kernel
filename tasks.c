@@ -3179,6 +3179,17 @@ BaseType_t xTaskIncrementTick( void )
                     }
                     #endif
 
+                    #ifdef USE_PREEMPTIVE_EDF_SCHEDULER
+                    if (taskCalculateDeadline(pxTCB) < taskCalculateDeadline(pxCurrentTCB))
+                    {
+                        xSwitchRequired = pdTRUE;
+                    }
+                    else
+                    {
+                        mtCOVERAGE_TEST_MARKER();
+                    }
+                    #endif
+
                     /* Is the task waiting on an event also?  If so remove
                      * it from the event list. */
                     if( listLIST_ITEM_CONTAINER( &( pxTCB->xEventListItem ) ) != NULL )
