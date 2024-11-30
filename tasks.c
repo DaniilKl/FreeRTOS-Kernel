@@ -375,6 +375,36 @@
     }
 #endif
 
+#ifdef USE_EDF_SCHEDULER
+    #define taskCalculateDeadline(pxTCB) (pxTCB->xTaskStarted + pxTCB->xTaskExecutionDeadline)
+
+    #define taskEDF_SCHEDULER()                                                 \
+    {                                                                          \
+        pxCurrentTCB = NULL;                                                   \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&(pxReadyTasksLists));\
+                                                                               \
+        if (uxCurrentReadyListLength == 0 )                                    \
+            pxCurrentTCB = pxIdleTaskTCB;                                      \
+        else                                                                   \
+        /* Find the shortst job in the redy list: */                           \
+            while(uxCurrentReadyListLength != 0)                                   \
+            {                                                                      \
+                if(pxCurrentTCB == NULL)                                           \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+                }                                                                  \
+                else                                                               \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists));  \
+                    if(taskCalculateDeadline(pxTempTCB) < taskCalculateDeadline(pxCurrentTCB))\
+                        pxCurrentTCB = pxTempTCB;                                  \
+                }                                                                  \
+                uxCurrentReadyListLength--;                                        \
+            }                                                                      \
+    }
+#endif
+
 /*-----------------------------------------------------------*/
 
 /* pxDelayedTaskList and pxOverflowDelayedTaskList are switched when the tick
@@ -1021,7 +1051,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             prvAddNewTaskToReadyList( pxNewTCB );
             #endif
 
-            #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER)
+            #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER) || defined(USE_EDF_SCHEDULER)
             prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, xTaskExecutionTime, xTaskExecutionPeriod, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
 
             if( pcName == configIDLE_TASK_NAME )
@@ -1359,6 +1389,28 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
             if( xSchedulerRunning == pdFALSE )
             {
                 if(pxNewTCB->xTaskExecutionTime < taskComputeRemaningExecutionTime(pxCurrentTCB))
+                {
+                    pxCurrentTCB = pxNewTCB;
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        #endif
+        #ifdef USE_EDF_SCHEDULER
+        else
+        {
+            /* If the scheduler is not already running, make this task the
+             * current task if it has earliest deadline. */
+            if( xSchedulerRunning == pdFALSE )
+            {
+                if(taskCalculateDeadline(pxCurrentTCB) > taskCalculateDeadline(pxNewTCB))
                 {
                     pxCurrentTCB = pxNewTCB;
                 }
@@ -3167,7 +3219,7 @@ BaseType_t xTaskIncrementTick( void )
                     }
                     #endif /* configUSE_PREEMPTION */
 
-                    #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER)
+                    #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER) || defined(USE_EDF_SCHEDULER)
                     /* If a task has been unblocked while the idle task runs -
                      * call to scheduler for context switch. */
                     if (pxCurrentTCB == pxIdleTaskTCB)
@@ -3434,6 +3486,10 @@ void vTaskSwitchContext( void )
 
         #ifdef USE_SRTN_SCHEDULER
         taskSRTN_SCHEDULER();
+        #endif
+
+        #ifdef USE_EDF_SCHEDULER
+        taskEDF_SCHEDULER();
         #endif
 
         traceTASK_SWITCHED_IN();
