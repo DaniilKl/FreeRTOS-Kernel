@@ -280,6 +280,101 @@
     }
 #endif
 
+#ifdef USE_DM_SCHEDULER
+    #define taskDM_RECOMPUTE_PRIORITIES(pxNewTaskTCB)                          \
+    {                                                                          \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxTopPriority = uxTopReadyPriority;                        \
+        UBaseType_t uxCurrentReadyListLength = 0;                              \
+                                                                               \
+        if(uxPriority == 0)                                                    \
+            pxNewTCB->uxPriority = 0;                                          \
+        /*If list is empty, the there is only idle task present, which has     \
+         * priority 0 (lowest). The a new task will get priority 1: */         \
+        else if(uxTopPriority == 0)                                            \
+            pxNewTaskTCB->uxPriority = 1;                                      \
+        /* Otherwise the earlier the task deadline the higher the task priority: */\
+        else                                                                   \
+        {                                                                      \
+            while(uxTopPriority != 0)                               \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &pxReadyTasksLists[uxTopPriority]);\
+                                                                               \
+                if(pxTempTCB->xTaskExecutionDeadline > pxNewTaskTCB->xTaskExecutionDeadline)\
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority + 1;      \
+                    break                                                      \
+                }                                                              \
+                else if (pxTempTCB->xTaskExecutionDeadline < pxNewTaskTCB->xTaskExecutionDeadline)\
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                    uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&pxReadyTasksLists[uxTopPriority]);\
+                                                                               \
+                    while (uxCurrentReadyListLength != 0)                      \
+                    {                                                          \
+                        listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists[uxTopPriority]));\
+                        pxTempTCB->uxPriority++;                               \
+                        uxCurrentReadyListLength--;                            \
+                    }                                                          \
+                }                                                              \
+                else                                                           \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                uxTopPriority--;                                               \
+            }                                                                  \
+        }                                                                      \
+    }
+#endif
+
+#ifdef USE_RM_SCHEDULER
+    #define taskRM_RECOMPUTE_PRIORITIES(pxNewTaskTCB)                          \
+    {                                                                          \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxTopPriority = uxTopReadyPriority;                        \
+        UBaseType_t uxCurrentReadyListLength = 0;                              \
+                                                                               \
+        if(uxPriority == 0)                                                    \
+            pxNewTCB->uxPriority = 0;                                          \
+        /*If top priority is 0 is empty, the there is only idle task present,  \
+         * which has priority 0 (lowest). The a new task will get priority 1: */\
+        else if(uxTopPriority == 0)                                                 \
+            pxNewTaskTCB->uxPriority = 1;                                      \
+        /* Otherwise the larger the task arrival rate the higher the task      \
+         * priority:*/                                                         \
+        else                                                                   \
+        {                                                                      \
+            while(uxTopPriority != 0)                                     \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists[uxTopPriority]));\
+                                                                               \
+                if(pxTempTCB->xTaskPeriod > pxNewTaskTCB->xTaskPeriod)         \
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority + 1;      \
+                    break;                                                     \
+                }                                                              \
+                else if (pxTempTCB->xTaskPeriod < pxNewTaskTCB->xTaskPeriod)   \
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                    uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&pxReadyTasksLists[uxTopPriority]);\
+                                                                               \
+                    while (uxCurrentReadyListLength != 0)                      \
+                    {                                                          \
+                        listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists[uxTopPriority]));\
+                        pxTempTCB->uxPriority++;                               \
+                        uxCurrentReadyListLength--;                            \
+                    }                                                          \
+                }                                                              \
+                else                                                           \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                uxTopPriority--;                                               \
+            }                                                                  \
+        }                                                                      \
+    }
+#endif
+
 /*-----------------------------------------------------------*/
 
 /* pxDelayedTaskList and pxOverflowDelayedTaskList are switched when the tick
@@ -366,6 +461,7 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
     TickType_t xTaskTimeExecuted;                /* Number of tick a task has been executing. */
     TickType_t xTaskExecutionTime;              /* Number of ticks needed for task to be executed. NOTE: for task load simulation only. */
     TickType_t xTaskCurrentExecutionTime;       /* Set to xTaskExecutionTime and decreased every SysTick. NOTE: for task load simulation only. */
+    TickType_t xTaskExecutionPeriod;            /* Is used for periodic tasks only. */
     TickType_t xTaskExecutionDeadline;          /* Deadline for a task. */
     char pcTaskName[ configMAX_TASK_NAME_LEN ]; /*< Descriptive name given to the task when created.  Facilitates debugging only. */ /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
 
@@ -651,6 +747,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   UBaseType_t uxPriority,
                                   #endif
                                   TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                                  TickType_t xTaskExecutionPeriod,
                                   TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
@@ -842,6 +939,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
                             UBaseType_t uxPriority,
                             #endif
                             TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                            TickType_t xTaskExecutionPeriod,
                             TickType_t xTaskExecutionDeadline,
                             TaskHandle_t * const pxCreatedTask )
     {
@@ -919,12 +1017,12 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             #endif /* tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE */
 
             #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
-            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
+            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionTime, xTaskExecutionPeriod, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
             prvAddNewTaskToReadyList( pxNewTCB );
             #endif
 
             #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER)
-            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, xTaskExecutionTime, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
+            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, xTaskExecutionTime, xTaskExecutionPeriod, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
 
             if( pcName == configIDLE_TASK_NAME )
                 pxIdleTaskTCB = pxNewTCB;
@@ -953,6 +1051,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   UBaseType_t uxPriority,
                                   #endif
                                   TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                                  TickType_t xTaskExecutionPeriod,
                                   TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
@@ -1066,7 +1165,16 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     pxNewTCB->xTaskTimeExecuted = 1;
     pxNewTCB->xTaskExecutionTime = xTaskExecutionTime;
     pxNewTCB->xTaskCurrentExecutionTime = xTaskExecutionTime;
+    pxNewTCB->xTaskExecutionPeriod = xTaskExecutionPeriod;
     pxNewTCB->xTaskExecutionDeadline = xTaskExecutionDeadline;
+
+     #ifdef USE_DM_SCHEDULER
+    taskDM_RECOMPUTE_PRIORITIES(pxNewTCB);
+    #endif   
+
+    #ifdef USE_RM_SCHEDULER
+    taskRM_RECOMPUTE_PRIORITIES(pxNewTCB);
+    #endif
 
     #if ( configUSE_MUTEXES == 1 )
     {
@@ -2195,6 +2303,7 @@ void vTaskStartScheduler( void )
                                #endif
                                0,
                                0,
+                               0,
                                &xIdleTaskHandle ); /*lint !e961 MISRA exception, justified as it is not a redundant explicit cast to all supported compilers. */
     }
     #endif /* configSUPPORT_STATIC_ALLOCATION */
@@ -3071,9 +3180,8 @@ BaseType_t xTaskIncrementTick( void )
         /* Tasks of equal priority to the currently running task will share
          * processing time (time slice) if preemption is on, and the application
          * writer has not explicitly turned time slicing off. */
-        #if ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) )
+        #if ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) ) && defined(USE_FREERTOS_CLASSIC_SCHEDULER)
         {
-            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
             if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ pxCurrentTCB->uxPriority ] ) ) > ( UBaseType_t ) 1 )
             {
                 xSwitchRequired = pdTRUE;
@@ -3082,7 +3190,6 @@ BaseType_t xTaskIncrementTick( void )
             {
                 mtCOVERAGE_TEST_MARKER();
             }
-            #endif
         }
         #endif /* ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) ) */
 

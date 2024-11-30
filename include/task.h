@@ -363,6 +363,7 @@ typedef enum
                             UBaseType_t uxPriority,
                             #endif
                             TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                            TickType_t xTaskExecutionPeriod,
                             TickType_t xTaskExecutionDeadline,
                             TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION;
 #endif
