@@ -115,6 +115,7 @@
     #define configIDLE_TASK_NAME    "IDLE"
 #endif
 
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 #if ( configUSE_PORT_OPTIMISED_TASK_SELECTION == 0 )
 
 /* If configUSE_PORT_OPTIMISED_TASK_SELECTION is 0 then task selection is
@@ -123,6 +124,7 @@
 
 /* uxTopReadyPriority holds the priority of the highest priority ready
  * state task. */
+
     #define taskRECORD_READY_PRIORITY( uxPriority ) \
     {                                               \
         if( ( uxPriority ) > uxTopReadyPriority )   \
@@ -193,6 +195,279 @@
     }
 
 #endif /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
+#endif
+
+#ifdef USE_FCFS_SCHEDULER
+    #define taskFCFS_Scheduler()                                \
+    {                                                                         \
+        ListItem_t ListItem;                                                  \
+                                                                              \
+        if ( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists ) ) == 0 )         \
+            pxCurrentTCB = pxIdleTaskTCB;                                     \
+        else                                                                  \
+            listGET_OWNER_OF_NEXT_ENTRY( pxCurrentTCB, &( pxReadyTasksLists ) );\
+    } /* taskFCFS_Scheduler */
+#endif
+
+#ifdef USE_RR_SCHEDULER
+    #define taskRR_SCHEDULER()                                \
+    {                                                                         \
+        pxCurrentTCB->xTaskTimeExecuted = 1;                                  \
+        if (listCURRENT_LIST_LENGTH(&(pxReadyTasksLists)) == 0 )              \
+            pxCurrentTCB = pxIdleTaskTCB;                                     \
+        else                                                                  \
+        /* listGET_OWNER_OF_NEXT_ENTRY indexes through the list, so the tasks of \
+         * the  same priority get an equal share of the processor time. */    \
+            listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+    }
+#endif
+
+#ifdef USE_SJF_SCHEDULER
+    #define taskSJF_SCHEDULER()                                                 \
+    {                                                                          \
+        pxCurrentTCB = NULL;                                                   \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&(pxReadyTasksLists));\
+                                                                               \
+        if (uxCurrentReadyListLength == 0 )                                    \
+            pxCurrentTCB = pxIdleTaskTCB;                                      \
+        else                                                                   \
+        /* Find the shortst job in the redy list: */                           \
+        while(uxCurrentReadyListLength != 0)                                   \
+        {                                                                      \
+            if(pxCurrentTCB == NULL)                                           \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+            }                                                                  \
+            else                                                               \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists));  \
+                if(pxTempTCB->xTaskExecutionTime < pxCurrentTCB->xTaskExecutionTime)\
+                    pxCurrentTCB = pxTempTCB;                                  \
+            }                                                                  \
+            uxCurrentReadyListLength--;                                        \
+        }                                                                      \
+    }
+#endif
+
+#ifdef USE_SRTN_SCHEDULER
+    #define taskComputeRemaningExecutionTime(pxTCB) ((pxTCB->xTaskExecutionTime + 1) - pxTCB->xTaskTimeExecuted)
+
+    #define taskSRTN_SCHEDULER()                                                 \
+    {                                                                          \
+        pxCurrentTCB = NULL;                                                   \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&(pxReadyTasksLists));\
+                                                                               \
+        if (uxCurrentReadyListLength == 0)                                    \
+            pxCurrentTCB = pxIdleTaskTCB;                                      \
+        else                                                                   \
+        /* Find the shortst job in the redy list: */                           \
+        while(uxCurrentReadyListLength != 0)                                   \
+        {                                                                      \
+            if(pxCurrentTCB == NULL)                                           \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+            }                                                                  \
+            else                                                               \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists));  \
+                if(taskComputeRemaningExecutionTime(pxTempTCB) < taskComputeRemaningExecutionTime(pxCurrentTCB))\
+                    pxCurrentTCB = pxTempTCB;                                  \
+            }                                                                  \
+            uxCurrentReadyListLength--;                                        \
+        }                                                                      \
+    }
+#endif
+
+#ifdef USE_DM_SCHEDULER
+    #define taskDM_RECOMPUTE_PRIORITIES(pxNewTaskTCB)                          \
+    {                                                                          \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxTopPriority = uxTopReadyPriority;                        \
+        UBaseType_t uxCurrentReadyListLength = 0;                              \
+                                                                               \
+        if(uxPriority == 0)                                                    \
+            pxNewTCB->uxPriority = 0;                                          \
+        /*If list is empty, the there is only idle task present, which has     \
+         * priority 0 (lowest). The a new task will get priority 1: */         \
+        else if(uxTopPriority == 0)                                            \
+            pxNewTaskTCB->uxPriority = 1;                                      \
+        /* Otherwise the earlier the task deadline the higher the task priority: */\
+        else                                                                   \
+        {                                                                      \
+            while(uxTopPriority != 0)                               \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &pxReadyTasksLists[uxTopPriority]);\
+                                                                               \
+                if(pxTempTCB->xTaskExecutionDeadline > pxNewTaskTCB->xTaskExecutionDeadline)\
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority + 1;      \
+                    break                                                      \
+                }                                                              \
+                else if (pxTempTCB->xTaskExecutionDeadline < pxNewTaskTCB->xTaskExecutionDeadline)\
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                    uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&pxReadyTasksLists[uxTopPriority]);\
+                                                                               \
+                    while (uxCurrentReadyListLength != 0)                      \
+                    {                                                          \
+                        listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists[uxTopPriority]));\
+                        pxTempTCB->uxPriority++;                               \
+                        uxCurrentReadyListLength--;                            \
+                    }                                                          \
+                }                                                              \
+                else                                                           \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                uxTopPriority--;                                               \
+            }                                                                  \
+        }                                                                      \
+    }
+#endif
+
+#ifdef USE_RM_SCHEDULER
+    #define taskRM_RECOMPUTE_PRIORITIES(pxNewTaskTCB)                          \
+    {                                                                          \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxTopPriority = uxTopReadyPriority;                        \
+        UBaseType_t uxCurrentReadyListLength = 0;                              \
+                                                                               \
+        if(uxPriority == 0)                                                    \
+            pxNewTCB->uxPriority = 0;                                          \
+        /*If top priority is 0 is empty, the there is only idle task present,  \
+         * which has priority 0 (lowest). The a new task will get priority 1: */\
+        else if(uxTopPriority == 0)                                                 \
+            pxNewTaskTCB->uxPriority = 1;                                      \
+        /* Otherwise the larger the task arrival rate the higher the task      \
+         * priority:*/                                                         \
+        else                                                                   \
+        {                                                                      \
+            while(uxTopPriority != 0)                                     \
+            {                                                                  \
+                listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists[uxTopPriority]));\
+                                                                               \
+                if(pxTempTCB->xTaskPeriod > pxNewTaskTCB->xTaskPeriod)         \
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority + 1;      \
+                    break;                                                     \
+                }                                                              \
+                else if (pxTempTCB->xTaskPeriod < pxNewTaskTCB->xTaskPeriod)   \
+                {                                                              \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                    uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&pxReadyTasksLists[uxTopPriority]);\
+                                                                               \
+                    while (uxCurrentReadyListLength != 0)                      \
+                    {                                                          \
+                        listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists[uxTopPriority]));\
+                        pxTempTCB->uxPriority++;                               \
+                        uxCurrentReadyListLength--;                            \
+                    }                                                          \
+                }                                                              \
+                else                                                           \
+                    pxNewTaskTCB->uxPriority = pxTempTCB->uxPriority;          \
+                                                                               \
+                uxTopPriority--;                                               \
+            }                                                                  \
+        }                                                                      \
+    }
+#endif
+
+#ifdef USE_EDF_SCHEDULER
+    #define taskCalculateDeadline(pxTCB) (pxTCB->xTaskStarted + pxTCB->xTaskExecutionDeadline)
+
+    #define taskEDF_SCHEDULER()                                                 \
+    {                                                                          \
+        pxCurrentTCB = NULL;                                                   \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&(pxReadyTasksLists));\
+                                                                               \
+        if (uxCurrentReadyListLength == 0 )                                    \
+            pxCurrentTCB = pxIdleTaskTCB;                                      \
+        else                                                                   \
+        /* Find the shortst job in the redy list: */                           \
+            while(uxCurrentReadyListLength != 0)                                   \
+            {                                                                      \
+                if(pxCurrentTCB == NULL)                                           \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+                }                                                                  \
+                else                                                               \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists));  \
+                    if(taskCalculateDeadline(pxTempTCB) < taskCalculateDeadline(pxCurrentTCB))\
+                        pxCurrentTCB = pxTempTCB;                                  \
+                }                                                                  \
+                uxCurrentReadyListLength--;                                        \
+            }                                                                      \
+    }
+#endif
+
+#ifdef USE_LLF_SCHEDULER
+    #define taskComputeRemaningExecutionTime(pxTCB) ((pxTCB->xTaskExecutionTime + 1) - pxTCB->xTaskTimeExecuted)
+    #define taskComputeLaxity(pxTCB) ((pxTCB->xTaskStarted + pxTCB->xTaskExecutionDeadline) - (xTaskGetTickCount() + taskComputeRemaningExecutionTime(pxTCB)))
+
+    #define taskLLF_SCHEDULER()                                                \
+    {                                                                          \
+        pxCurrentTCB = NULL;                                                   \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&(pxReadyTasksLists));\
+                                                                               \
+        if (uxCurrentReadyListLength == 0 )                                    \
+            pxCurrentTCB = pxIdleTaskTCB;                                      \
+        else                                                                   \
+        /* Find the shortst job in the redy list: */                           \
+            while(uxCurrentReadyListLength != 0)                                   \
+            {                                                                      \
+                if(pxCurrentTCB == NULL)                                           \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+                }                                                                  \
+                else                                                               \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists));  \
+                    if(taskComputeLaxity(pxTempTCB) < taskComputeLaxity(pxCurrentTCB))\
+                        pxCurrentTCB = pxTempTCB;                                  \
+                }                                                                  \
+                uxCurrentReadyListLength--;                                        \
+            }                                                                      \
+    }
+#endif
+
+#ifdef USE_DARTS_SCHEDULER
+    #define taskComputeRemaningExecutionTime(pxTCB) ((pxTCB->xTaskExecutionTime + 1) - pxTCB->xTaskTimeExecuted)
+    #define taskComputeLaxity(pxTCB) ((pxTCB->xTaskStarted + pxTCB->xTaskExecutionDeadline) - (xTaskGetTickCount() + taskComputeRemaningExecutionTime(pxTCB)))
+    #define taskComputeScore(pxTCB) ((float)taskComputeRemaningExecutionTime(pxTCB)/(((float)pxTCB->xTaskStarted + (float)pxTCB->xTaskExecutionDeadline) * (float)taskComputeLaxity(pxTCB)))
+
+    #define taskDARTS_SCHEDULER()                                              \
+    {                                                                          \
+        pxCurrentTCB = NULL;                                                   \
+        tskTCB *pxTempTCB = NULL;                                              \
+        UBaseType_t uxCurrentReadyListLength = listCURRENT_LIST_LENGTH(&(pxReadyTasksLists));\
+                                                                               \
+        if (uxCurrentReadyListLength == 0 )                                    \
+            pxCurrentTCB = pxIdleTaskTCB;                                      \
+        else                                                                   \
+        /* Find the shortst job in the redy list: */                           \
+            while(uxCurrentReadyListLength != 0)                                   \
+            {                                                                      \
+                if(pxCurrentTCB == NULL)                                           \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists));\
+                }                                                                  \
+                else                                                               \
+                {                                                                  \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxTempTCB, &(pxReadyTasksLists));  \
+                    if(taskComputeScore(pxTempTCB) > taskComputeScore(pxCurrentTCB))\
+                        pxCurrentTCB = pxTempTCB;                                  \
+                }                                                                  \
+                uxCurrentReadyListLength--;                                        \
+            }                                                                      \
+    }
+
+#endif
 
 /*-----------------------------------------------------------*/
 
@@ -218,11 +493,21 @@
  * Place the task represented by pxTCB into the appropriate ready list for
  * the task.  It is inserted at the end of the list.
  */
+
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 #define prvAddTaskToReadyList( pxTCB )                                                                 \
     traceMOVED_TASK_TO_READY_STATE( pxTCB );                                                           \
     taskRECORD_READY_PRIORITY( ( pxTCB )->uxPriority );                                                \
     listINSERT_END( &( pxReadyTasksLists[ ( pxTCB )->uxPriority ] ), &( ( pxTCB )->xStateListItem ) ); \
     tracePOST_MOVED_TASK_TO_READY_STATE( pxTCB )
+#else
+#define prvAddTaskToReadyList( pxTCB )                                                                 \
+    traceMOVED_TASK_TO_READY_STATE( pxTCB );                                                           \
+    listINSERT_END( &( pxReadyTasksLists ), &( ( pxTCB )->xStateListItem ) ); \
+    tracePOST_MOVED_TASK_TO_READY_STATE( pxTCB )
+#endif
+
+
 /*-----------------------------------------------------------*/
 
 /*
@@ -262,8 +547,16 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
 
     ListItem_t xStateListItem;                  /*< The list that the state list item of a task is reference from denotes the state of that task (Ready, Blocked, Suspended ). */
     ListItem_t xEventListItem;                  /*< Used to reference a task from an event list. */
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     UBaseType_t uxPriority;                     /*< The priority of the task.  0 is the lowest priority. */
+    #endif
     StackType_t * pxStack;                      /*< Points to the start of the stack. */
+    TickType_t xTaskStarted;                    /* The tick value when task started execution. */
+    TickType_t xTaskTimeExecuted;                /* Number of tick a task has been executing. */
+    TickType_t xTaskExecutionTime;              /* Number of ticks needed for task to be executed. NOTE: for task load simulation only. */
+    TickType_t xTaskCurrentExecutionTime;       /* Set to xTaskExecutionTime and decreased every SysTick. NOTE: for task load simulation only. */
+    TickType_t xTaskExecutionPeriod;            /* Is used for periodic tasks only. */
+    TickType_t xTaskExecutionDeadline;          /* Deadline for a task. */
     char pcTaskName[ configMAX_TASK_NAME_LEN ]; /*< Descriptive name given to the task when created.  Facilitates debugging only. */ /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
 
     #if ( ( portSTACK_GROWTH > 0 ) || ( configRECORD_STACK_HIGH_ADDRESS == 1 ) )
@@ -332,7 +625,12 @@ portDONT_DISCARD PRIVILEGED_DATA TCB_t * volatile pxCurrentTCB = NULL;
  * xDelayedTaskList1 and xDelayedTaskList2 could be moved to function scope but
  * doing so breaks some kernel aware debuggers and debuggers that rely on removing
  * the static qualifier. */
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 PRIVILEGED_DATA static List_t pxReadyTasksLists[ configMAX_PRIORITIES ]; /*< Prioritised ready tasks. */
+#else
+PRIVILEGED_DATA static List_t pxReadyTasksLists; // Only one list if no priorities.
+portDONT_DISCARD PRIVILEGED_DATA TCB_t * volatile pxIdleTaskTCB = NULL;
+#endif
 PRIVILEGED_DATA static List_t xDelayedTaskList1;                         /*< Delayed tasks. */
 PRIVILEGED_DATA static List_t xDelayedTaskList2;                         /*< Delayed tasks (two lists are used - one for delays that have overflowed the current tick count. */
 PRIVILEGED_DATA static List_t * volatile pxDelayedTaskList;              /*< Points to the delayed task list currently being used. */
@@ -361,7 +659,9 @@ PRIVILEGED_DATA static List_t xPendingReadyList;                         /*< Tas
 /* Other file private variables. --------------------------------*/
 PRIVILEGED_DATA static volatile UBaseType_t uxCurrentNumberOfTasks = ( UBaseType_t ) 0U;
 PRIVILEGED_DATA static volatile TickType_t xTickCount = ( TickType_t ) configINITIAL_TICK_COUNT;
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 PRIVILEGED_DATA static volatile UBaseType_t uxTopReadyPriority = tskIDLE_PRIORITY;
+#endif
 PRIVILEGED_DATA static volatile BaseType_t xSchedulerRunning = pdFALSE;
 PRIVILEGED_DATA static volatile TickType_t xPendedTicks = ( TickType_t ) 0U;
 PRIVILEGED_DATA static volatile BaseType_t xYieldPending = pdFALSE;
@@ -373,7 +673,9 @@ PRIVILEGED_DATA static TaskHandle_t xIdleTaskHandle = NULL;                     
 /* Improve support for OpenOCD. The kernel tracks Ready tasks via priority lists.
  * For tracking the state of remote threads, OpenOCD uses uxTopUsedPriority
  * to determine the number of priority lists to read back from the remote target. */
+#ifdef USE_FREERTOS_CLASSIC_SCHEDULER
 const volatile UBaseType_t uxTopUsedPriority = configMAX_PRIORITIES - 1U;
+#endif
 
 /* Context switches are held pending while the scheduler is suspended.  Also,
  * interrupts must not manipulate the xStateListItem of a TCB, or any of the
@@ -535,7 +837,12 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
+                                  #ifdef USE_FREERTOS_CLASSIC_SCHEDULER 
                                   UBaseType_t uxPriority,
+                                  #endif
+                                  TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                                  TickType_t xTaskExecutionPeriod,
+                                  TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
                                   const MemoryRegion_t * const xRegions ) PRIVILEGED_FUNCTION;
@@ -722,7 +1029,12 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
                             const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                             const configSTACK_DEPTH_TYPE usStackDepth,
                             void * const pvParameters,
+                            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                             UBaseType_t uxPriority,
+                            #endif
+                            TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                            TickType_t xTaskExecutionPeriod,
+                            TickType_t xTaskExecutionDeadline,
                             TaskHandle_t * const pxCreatedTask )
     {
         TCB_t * pxNewTCB;
@@ -798,8 +1110,20 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
             }
             #endif /* tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE */
 
-            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, pxCreatedTask, pxNewTCB, NULL );
+            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
+            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, xTaskExecutionTime, xTaskExecutionPeriod, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
             prvAddNewTaskToReadyList( pxNewTCB );
+            #endif
+
+            #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER) || defined(USE_EDF_SCHEDULER) || defined(USE_LLF_SCHEDULER) || defined(USE_DARTS_SCHEDULER)
+            prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, xTaskExecutionTime, xTaskExecutionPeriod, xTaskExecutionDeadline, pxCreatedTask, pxNewTCB, NULL );
+
+            if( pcName == configIDLE_TASK_NAME )
+                pxIdleTaskTCB = pxNewTCB;
+            else
+                prvAddNewTaskToReadyList( pxNewTCB );
+            #endif
+
             xReturn = pdPASS;
         }
         else
@@ -817,7 +1141,12 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
                                   const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                                   const uint32_t ulStackDepth,
                                   void * const pvParameters,
+                                  #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                                   UBaseType_t uxPriority,
+                                  #endif
+                                  TickType_t xTaskExecutionTime, /* NOTE: for task load simulation only. */
+                                  TickType_t xTaskExecutionPeriod,
+                                  TickType_t xTaskExecutionDeadline,
                                   TaskHandle_t * const pxCreatedTask,
                                   TCB_t * pxNewTCB,
                                   const MemoryRegion_t * const xRegions )
@@ -910,6 +1239,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
         mtCOVERAGE_TEST_MARKER();
     }
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* This is used as an array index so must ensure it's not too large. */
     configASSERT( uxPriority < configMAX_PRIORITIES );
 
@@ -923,6 +1253,23 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     }
 
     pxNewTCB->uxPriority = uxPriority;
+    #endif
+
+    pxNewTCB->xTaskStarted = xTaskGetTickCount();
+    pxNewTCB->xTaskTimeExecuted = 1;
+    pxNewTCB->xTaskExecutionTime = xTaskExecutionTime;
+    pxNewTCB->xTaskCurrentExecutionTime = xTaskExecutionTime;
+    pxNewTCB->xTaskExecutionPeriod = xTaskExecutionPeriod;
+    pxNewTCB->xTaskExecutionDeadline = xTaskExecutionDeadline;
+
+     #ifdef USE_DM_SCHEDULER
+    taskDM_RECOMPUTE_PRIORITIES(pxNewTCB);
+    #endif   
+
+    #ifdef USE_RM_SCHEDULER
+    taskRM_RECOMPUTE_PRIORITIES(pxNewTCB);
+    #endif
+
     #if ( configUSE_MUTEXES == 1 )
     {
         pxNewTCB->uxBasePriority = uxPriority;
@@ -936,8 +1283,10 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
      * back to  the containing TCB from a generic item in a list. */
     listSET_LIST_ITEM_OWNER( &( pxNewTCB->xStateListItem ), pxNewTCB );
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* Event lists are always in priority order. */
     listSET_LIST_ITEM_VALUE( &( pxNewTCB->xEventListItem ), ( TickType_t ) configMAX_PRIORITIES - ( TickType_t ) uxPriority ); /*lint !e961 MISRA exception as the casts are only redundant for some ports. */
+    #endif
     listSET_LIST_ITEM_OWNER( &( pxNewTCB->xEventListItem ), pxNewTCB );
 
     #if ( portUSING_MPU_WRAPPERS == 1 )
@@ -1049,6 +1398,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
                 mtCOVERAGE_TEST_MARKER();
             }
         }
+        #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
         else
         {
             /* If the scheduler is not already running, make this task the
@@ -1070,6 +1420,117 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
                 mtCOVERAGE_TEST_MARKER();
             }
         }
+        #endif
+        #ifdef USE_SJF_SCHEDULER
+        else
+        {
+            /* If the scheduler is not already running, make this task the
+             * current task if it is the shortes task to be created so far. */
+            if( xSchedulerRunning == pdFALSE )
+            {
+                if(pxCurrentTCB->xTaskExecutionTime > pxNewTCB->xTaskExecutionTime)
+                {
+                    pxCurrentTCB = pxNewTCB;
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        #endif
+        #ifdef USE_SRTN_SCHEDULER
+        else
+        {
+            /* If task starts execution for the first time than its
+             * xTaskTimeExecuted equals to its initial value, which is 1, so no
+             * need to compute remaning execution for a new task because it
+             * equals to total execution time left of the task. */
+            if( xSchedulerRunning == pdFALSE )
+            {
+                if(pxNewTCB->xTaskExecutionTime < taskComputeRemaningExecutionTime(pxCurrentTCB))
+                {
+                    pxCurrentTCB = pxNewTCB;
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        #endif
+        #ifdef USE_EDF_SCHEDULER
+        else
+        {
+            /* If the scheduler is not already running, make this task the
+             * current task if it has earliest deadline. */
+            if( xSchedulerRunning == pdFALSE )
+            {
+                if(taskCalculateDeadline(pxCurrentTCB) > taskCalculateDeadline(pxNewTCB))
+                {
+                    pxCurrentTCB = pxNewTCB;
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        #endif
+        #ifdef USE_LLF_SCHEDULER
+        else
+        {
+            /* If the scheduler is not already running, make this task the
+             * current task if it has earliest deadline. */
+            if( xSchedulerRunning == pdFALSE )
+            {
+                if(taskComputeLaxity(pxCurrentTCB) > taskComputeLaxity(pxNewTCB))
+                {
+                    pxCurrentTCB = pxNewTCB;
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        #endif
+        #ifdef USE_DARTS_SCHEDULER
+        else
+        {
+            if( xSchedulerRunning == pdFALSE )
+            {
+                if(taskComputeScore(pxCurrentTCB) < taskComputeScore(pxNewTCB))
+                {
+                    pxCurrentTCB = pxNewTCB;
+                }
+                else
+                {
+                    mtCOVERAGE_TEST_MARKER();
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        #endif
 
         uxTaskNumber++;
 
@@ -1087,6 +1548,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
     }
     taskEXIT_CRITICAL();
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     if( xSchedulerRunning != pdFALSE )
     {
         /* If the created task is of a higher priority than the current task
@@ -1104,6 +1566,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
     {
         mtCOVERAGE_TEST_MARKER();
     }
+    #endif
 }
 /*-----------------------------------------------------------*/
 
@@ -1120,6 +1583,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
             pxTCB = prvGetTCBFromHandle( xTaskToDelete );
 
             /* Remove task from the ready/delayed list. */
+            #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
             if( uxListRemove( &( pxTCB->xStateListItem ) ) == ( UBaseType_t ) 0 )
             {
                 taskRESET_READY_PRIORITY( pxTCB->uxPriority );
@@ -1128,6 +1592,9 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB )
             {
                 mtCOVERAGE_TEST_MARKER();
             }
+            #else
+            uxListRemove( &( pxTCB->xStateListItem ) );
+            #endif
 
             /* Is the task waiting on an event also? */
             if( listLIST_ITEM_CONTAINER( &( pxTCB->xEventListItem ) ) != NULL )
@@ -1989,7 +2456,12 @@ void vTaskStartScheduler( void )
                                configIDLE_TASK_NAME,
                                configMINIMAL_STACK_SIZE,
                                ( void * ) NULL,
+                               #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                                portPRIVILEGE_BIT,  /* In effect ( tskIDLE_PRIORITY | portPRIVILEGE_BIT ), but tskIDLE_PRIORITY is zero. */
+                               #endif
+                               0,
+                               0,
+                               0,
                                &xIdleTaskHandle ); /*lint !e961 MISRA exception, justified as it is not a redundant explicit cast to all supported compilers. */
     }
     #endif /* configSUPPORT_STATIC_ALLOCATION */
@@ -2070,9 +2542,11 @@ void vTaskStartScheduler( void )
      * meaning xIdleTaskHandle is not used anywhere else. */
     ( void ) xIdleTaskHandle;
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* OpenOCD makes use of uxTopUsedPriority for thread debugging. Prevent uxTopUsedPriority
      * from getting optimized out as it is no longer used by the kernel. */
     ( void ) uxTopUsedPriority;
+    #endif
 }
 /*-----------------------------------------------------------*/
 
@@ -2203,6 +2677,9 @@ BaseType_t xTaskResumeAll( void )
                     listREMOVE_ITEM( &( pxTCB->xStateListItem ) );
                     prvAddTaskToReadyList( pxTCB );
 
+                    pxTCB->xTaskStarted = xTaskGetTickCount();
+
+                    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                     /* If the moved task has a priority higher than or equal to
                      * the current task then a yield must be performed. */
                     if( pxTCB->uxPriority >= pxCurrentTCB->uxPriority )
@@ -2213,6 +2690,7 @@ BaseType_t xTaskResumeAll( void )
                     {
                         mtCOVERAGE_TEST_MARKER();
                     }
+                    #endif
                 }
 
                 if( pxTCB != NULL )
@@ -2792,6 +3270,54 @@ BaseType_t xTaskIncrementTick( void )
                     /* It is time to remove the item from the Blocked state. */
                     listREMOVE_ITEM( &( pxTCB->xStateListItem ) );
 
+                    pxTCB->xTaskTimeExecuted = 1;
+
+                    #ifdef USE_SRTN_SCHEDULER
+                    /* If a periodic task starts execution again its remaining
+                     * execution time equals to total execution time:*/
+                    if (pxTCB->xTaskExecutionTime < taskComputeRemaningExecutionTime(pxCurrentTCB))
+                    {
+                        xSwitchRequired = pdTRUE;
+                    }
+                    else
+                    {
+                        mtCOVERAGE_TEST_MARKER();
+                    }
+                    #endif
+
+                    #ifdef USE_PREEMPTIVE_EDF_SCHEDULER
+                    if (taskCalculateDeadline(pxTCB) < taskCalculateDeadline(pxCurrentTCB))
+                    {
+                        xSwitchRequired = pdTRUE;
+                    }
+                    else
+                    {
+                        mtCOVERAGE_TEST_MARKER();
+                    }
+                    #endif
+
+                    #ifdef USE_PREEMPTIVE_LLF_SCHEDULER
+                    if (taskComputeLaxity(pxTCB) < taskComputeLaxity(pxCurrentTCB))
+                    {
+                        xSwitchRequired = pdTRUE;
+                    }
+                    else
+                    {
+                        mtCOVERAGE_TEST_MARKER();
+                    }
+                    #endif
+
+                    #ifdef USE_DARTS_SCHEDULER
+                    if (taskComputeScore(pxTCB) > taskComputeScore(pxCurrentTCB))
+                    {
+                        xSwitchRequired = pdTRUE;
+                    }
+                    else
+                    {
+                        mtCOVERAGE_TEST_MARKER();
+                    }
+                    #endif
+
                     /* Is the task waiting on an event also?  If so remove
                      * it from the event list. */
                     if( listLIST_ITEM_CONTAINER( &( pxTCB->xEventListItem ) ) != NULL )
@@ -2819,6 +3345,7 @@ BaseType_t xTaskIncrementTick( void )
                          * processing time (which happens when both
                          * preemption and time slicing are on) is
                          * handled below.*/
+                        #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
                         if( pxTCB->uxPriority > pxCurrentTCB->uxPriority )
                         {
                             xSwitchRequired = pdTRUE;
@@ -2827,8 +3354,16 @@ BaseType_t xTaskIncrementTick( void )
                         {
                             mtCOVERAGE_TEST_MARKER();
                         }
+                        #endif
                     }
                     #endif /* configUSE_PREEMPTION */
+
+                    #if defined(USE_FCFS_SCHEDULER) || defined(USE_RR_SCHEDULER) || defined(USE_SJF_SCHEDULER) || defined(USE_SRTN_SCHEDULER) || defined(USE_EDF_SCHEDULER) || defined(USE_LLF_SCHEDULER) || defined(USE_DARTS_SCHEDULER)
+                    /* If a task has been unblocked while the idle task runs -
+                     * call to scheduler for context switch. */
+                    if (pxCurrentTCB == pxIdleTaskTCB)
+                        xSwitchRequired = pdTRUE;
+                    #endif
                 }
             }
         }
@@ -2836,7 +3371,7 @@ BaseType_t xTaskIncrementTick( void )
         /* Tasks of equal priority to the currently running task will share
          * processing time (time slice) if preemption is on, and the application
          * writer has not explicitly turned time slicing off. */
-        #if ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) )
+        #if ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) ) && defined(USE_FREERTOS_CLASSIC_SCHEDULER)
         {
             if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ pxCurrentTCB->uxPriority ] ) ) > ( UBaseType_t ) 1 )
             {
@@ -2848,6 +3383,17 @@ BaseType_t xTaskIncrementTick( void )
             }
         }
         #endif /* ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) ) */
+
+        #ifdef USE_RR_SCHEDULER
+        if( ( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists ) ) > ( UBaseType_t ) 1 ) && (taskModulo(pxCurrentTCB->xTaskTimeExecuted, RR_TIME_SLICE) == 0) )
+        {
+            xSwitchRequired = pdTRUE;
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+        #endif
 
         #if ( configUSE_TICK_HOOK == 1 )
         {
@@ -2889,6 +3435,8 @@ BaseType_t xTaskIncrementTick( void )
         }
         #endif
     }
+
+    pxCurrentTCB->xTaskTimeExecuted++;
 
     return xSwitchRequired;
 }
@@ -3057,9 +3605,40 @@ void vTaskSwitchContext( void )
         }
         #endif
 
+        #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
         /* Select a new task to run using either the generic C or port
          * optimised asm code. */
         taskSELECT_HIGHEST_PRIORITY_TASK(); /*lint !e9079 void * is used as this macro is used with timers and co-routines too.  Alignment is known to be fine as the type of the pointer stored and retrieved is the same. */
+        #endif
+
+        #ifdef USE_FCFS_SCHEDULER
+        taskFCFS_Scheduler();
+        #endif
+
+        #ifdef USE_RR_SCHEDULER
+        taskRR_SCHEDULER();
+        #endif
+
+        #ifdef USE_SJF_SCHEDULER
+        taskSJF_SCHEDULER();
+        #endif
+
+        #ifdef USE_SRTN_SCHEDULER
+        taskSRTN_SCHEDULER();
+        #endif
+
+        #ifdef USE_EDF_SCHEDULER
+        taskEDF_SCHEDULER();
+        #endif
+
+        #ifdef USE_LLF_SCHEDULER
+        taskLLF_SCHEDULER();
+        #endif
+
+        #ifdef USE_DARTS_SCHEDULER
+        taskDARTS_SCHEDULER();
+        #endif
+
         traceTASK_SWITCHED_IN();
 
         /* After the new task is switched in, update the global errno. */
@@ -3214,6 +3793,7 @@ BaseType_t xTaskRemoveFromEventList( const List_t * const pxEventList )
         listINSERT_END( &( xPendingReadyList ), &( pxUnblockedTCB->xEventListItem ) );
     }
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     if( pxUnblockedTCB->uxPriority > pxCurrentTCB->uxPriority )
     {
         /* Return true if the task removed from the event list has a higher
@@ -3229,6 +3809,9 @@ BaseType_t xTaskRemoveFromEventList( const List_t * const pxEventList )
     {
         xReturn = pdFALSE;
     }
+    #endif
+
+    xReturn = pdFALSE;
 
     return xReturn;
 }
@@ -3272,6 +3855,7 @@ void vTaskRemoveFromUnorderedEventList( ListItem_t * pxEventListItem,
     listREMOVE_ITEM( &( pxUnblockedTCB->xStateListItem ) );
     prvAddTaskToReadyList( pxUnblockedTCB );
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     if( pxUnblockedTCB->uxPriority > pxCurrentTCB->uxPriority )
     {
         /* The unblocked task has a priority above that of the calling task, so
@@ -3280,6 +3864,7 @@ void vTaskRemoveFromUnorderedEventList( ListItem_t * pxEventListItem,
          * occurs immediately that the scheduler is resumed (unsuspended). */
         xYieldPending = pdTRUE;
     }
+    #endif
 }
 /*-----------------------------------------------------------*/
 
@@ -3656,12 +4241,16 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 
 static void prvInitialiseTaskLists( void )
 {
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     UBaseType_t uxPriority;
 
     for( uxPriority = ( UBaseType_t ) 0U; uxPriority < ( UBaseType_t ) configMAX_PRIORITIES; uxPriority++ )
     {
         vListInitialise( &( pxReadyTasksLists[ uxPriority ] ) );
     }
+    #else
+    vListInitialise ( &pxReadyTasksLists );
+    #endif
 
     vListInitialise( &xDelayedTaskList1 );
     vListInitialise( &xDelayedTaskList2 );
@@ -4663,7 +5252,9 @@ TickType_t uxTaskResetEventItemValue( void )
 
     /* Reset the event list item to its normal value - so it can be used with
      * queues and semaphores. */
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     listSET_LIST_ITEM_VALUE( &( pxCurrentTCB->xEventListItem ), ( ( TickType_t ) configMAX_PRIORITIES - ( TickType_t ) pxCurrentTCB->uxPriority ) ); /*lint !e961 MISRA exception as the casts are only redundant for some ports. */
+    #endif
 
     return uxReturn;
 }
@@ -5309,6 +5900,7 @@ static void prvAddCurrentTaskToDelayedList( TickType_t xTicksToWait,
     }
     #endif
 
+    #ifdef USE_FREERTOS_CLASSIC_SCHEDULER
     /* Remove the task from the ready list before adding it to the blocked list
      * as the same list item is used for both lists. */
     if( uxListRemove( &( pxCurrentTCB->xStateListItem ) ) == ( UBaseType_t ) 0 )
@@ -5321,6 +5913,9 @@ static void prvAddCurrentTaskToDelayedList( TickType_t xTicksToWait,
     {
         mtCOVERAGE_TEST_MARKER();
     }
+    #else
+    uxListRemove( &( pxCurrentTCB->xStateListItem ) );
+    #endif
 
     #if ( INCLUDE_vTaskSuspend == 1 )
     {
